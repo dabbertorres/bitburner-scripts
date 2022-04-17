@@ -1,23 +1,37 @@
+import * as util from "util.js";
+
+const flags = [
+	["max", false, "Print the max amount of RAM a bought server can have."],
+	["check", false, "Just check the cost of a server with --size, instead of buying it."],
+	["size", 0, "Amount of RAM in GiB for new server."],
+	["host", "", "Name to give to new server. Defaults to 'server-#', where # is the number of purchased servers."],
+	["help", false, "Print the help."],
+];
+
+export const autocomplete = util.autocompleter(flags);
+
 /** @param {NS} ns */
 export async function main(ns) {
 	const total = ns.getPurchasedServers().length;
-	const limit = ns.getPurchasedServerLimit()
+	const limit = ns.getPurchasedServerLimit();
 
-	const data = ns.flags([
-		["max", false],
-		["check", false],
-		["buy", false],
-		["size", 0],
-		["host", "server-" + total],
-	]);
+	const opts = ns.flags(flags);
 
-	if (data.max) {
+	if (opts.help) {
+		util.help(ns, flags, "buy_server.js: Buy a custom server.");
+		return;
+	}
+
+	if (opts.max) {
 		ns.tprintf("Max RAM: %dGiB", ns.getPurchasedServerMaxRam() / 1024);
 		return;
 	}
 
+	if (opts.host === "") {
+		opts.host = "server-" + total;
+	}
 
-	const exp = Math.log2(data.size);
+	const exp = Math.log2(opts.size);
 	if (Math.floor(exp) !== exp) {
 		ns.tprint("RAM must be a power of 2.");
 		return;
@@ -25,7 +39,7 @@ export async function main(ns) {
 
 	const ram = Math.pow(2, exp);
 
-	if (data.check) {
+	if (opts.check) {
 		const have = ns.getServerMoneyAvailable("home");
 		const cost = ns.getPurchasedServerCost(ram);
 		if (have >= cost && total < limit) {
@@ -33,36 +47,20 @@ export async function main(ns) {
 		} else {
 			ns.tprint("Unavailable!")
 		}
-		print_price(ns, cost);
+		ns.tprint(ns.nFormat(cost, "($ 0.00 a)"));
 		return;
 	}
 
-	if (data.buy) {
-		const have = ns.getServerMoneyAvailable("home");
-		const cost = ns.getPurchasedServerCost(ram);
-		if (cost > have) {
-			ns.tprint("Not enough money!")
-		} else if (total >= limit) {
-			ns.tprint("Server limit reached!")
-		} else {
-			const name = ns.purchaseServer(data.host, ram);
-			ns.tprintf("Server now available as '%s'", name);
-		}
-		return;
-	}
-
-	ns.tprint("must specify an option: --max, --check, --buy")
-}
-
-/** @param {NS} ns */
-function print_price(ns, cost) {
-	if (cost < 1000) {
-		ns.tprintf("$%f", cost);
-	} else if (cost < 1000000) {
-		ns.tprintf("$%fk", cost / 1000);
-	} else if (cost < 1000000000) {
-		ns.tprintf("$%fm", cost / 1000000);
-	} else if (cost < 1000000000000) {
-		ns.tprintf("$%fb", cost / 1000000000);
+	const have = ns.getServerMoneyAvailable("home");
+	const cost = ns.getPurchasedServerCost(ram);
+	if (cost > have) {
+		ns.tprintf("Not enough money. Need %s, but have %s.",
+			ns.nFormat(cost, "($ 0.00 a)"),
+			ns.nFormat(have, "( $0.00 a)"));
+	} else if (total >= limit) {
+		ns.tprint("Server limit reached!")
+	} else {
+		const name = ns.purchaseServer(opts.host, ram);
+		ns.tprintf("Server now available as '%s'", name);
 	}
 }
