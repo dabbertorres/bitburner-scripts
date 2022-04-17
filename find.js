@@ -6,6 +6,7 @@ import * as util from "util.js";
  * @typedef {object} Opts
  * @property {boolean} root
  * @property {boolean} noroot
+ * @property {boolean} canroot
  * @property {boolean} idle
  * @property {string[]} haveall
  * @property {string[]} haveany
@@ -18,6 +19,7 @@ import * as util from "util.js";
 const flags = [
     ["root", false, "Include servers that you have root access on."],
     ["noroot", false, "Include servers that you do NOT have root access on."],
+    ["canroot", false, "Include servers that you CAN gain root access on."],
     ["idle", false, "Include servers not running any scripts."],
     ["haveall", [], "Include servers with ALL of these scripts on them.", data => [...data.scripts]],
     ["haveany", [], "Include servers with ANY of these scripts on them.", data => [...data.scripts]],
@@ -106,6 +108,21 @@ function make_filter(ns, opts) {
 
     if (opts.noroot) {
         filters.push(server => !ns.hasRootAccess(server));
+    }
+
+    if (opts.canroot) {
+        const tools_available = [
+            "BruteSSH.exe",
+            "FTPCrack.exe",
+            "relaySMTP.exe",
+            "HTTPWorm.exe",
+            "SQLInject.exe",
+        ].filter(exe => ns.fileExists(exe, "home")).length;
+
+        filters.push(server => {
+            return ns.getServerRequiredHackingLevel(server) <= ns.getHackingLevel(server)
+                && ns.getServerNumPortsRequired(server) <= tools_available;
+        });
     }
 
     if (opts.idle) {
