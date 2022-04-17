@@ -1,4 +1,5 @@
 import * as util from "util.js";
+import {find as pathfind} from "path_find.js";
 
 /**
  * @typedef {string}
@@ -11,8 +12,12 @@ import * as util from "util.js";
  * @property {string[]} haveall
  * @property {string[]} haveany
  * @property {number} free
+ * @property {number} mem
+ * @property {number} money
  * @property {string[]} ignore
  * @property {("and"|"or")} join
+ * @property {("name"|"mem"|"free")} sort
+ * @property {boolean} path
  * @property {boolean} help
  */
 
@@ -23,9 +28,13 @@ const flags = [
     ["idle", false, "Include servers not running any scripts."],
     ["haveall", [], "Include servers with ALL of these scripts on them.", data => [...data.scripts]],
     ["haveany", [], "Include servers with ANY of these scripts on them.", data => [...data.scripts]],
-    ["free", -1, "Include servers with at least this amount of free RAM."],
+    ["free", -1, "Include servers with at least this amount of free RAM (in GB)."],
+    ["mem", -1, "Include servers with at least this amount of max RAM (in GB)."],
+    ["money", -1, "Include servers with at least this amount of money (in dollars)."],
     ["ignore", [], "List of servers to exclude from results, even if they match the filter(s).", data => [...data.servers]],
     ["join", "and", "Operator to join filters with. Options are one of: 'and', 'or'.", _ => ["and", "or"]],
+    ["sort", "name", "Sort results by one of: 'name', 'mem', 'free'.", _ => ["name", "mem", "free"]],
+    ["path", false, "Print path to each server in results."],
 	["help", false, "Print the help."],
 ];
 
@@ -46,6 +55,17 @@ export async function main(ns) {
 		return;
 	}
 
+    switch (opts.sort) {
+    case "name":
+    case "mem":
+    case "free":
+        break;
+
+    default:
+        ns.tprintf("Invalid value for --sort: '%s'. See --help.\n", opts.join);
+        return;
+    }
+
     switch (opts.join) {
     case "and":
     case "or":
@@ -56,9 +76,41 @@ export async function main(ns) {
         return;
     }
 
-    const filter = make_filter(ns, opts)
+    const filter = make_filter(ns, opts);
 
-    const results = find(ns, "home", [], [], filter);
+    let results = [];
+    if (filter("home")) {
+        results.push("home");
+    }
+
+    results = find(ns, "home", [], results, filter);
+
+    switch (opts.sort) {
+    case "name":
+        results.sort();
+        break;
+
+    case "mem":
+        results.sort((a, b) => ns.getServerMaxRam(b) - ns.getServerMaxRam(a));
+        break;
+
+    case "free":
+        results.sort((a, b) => (ns.getServerMaxRam(b) - ns.getServerUsedRam(b)) - (ns.getServerMaxRam(a) - ns.getServerUsedRam(a)));
+        break;
+    }
+
+    if (opts.path) {
+        const current = ns.getHostname();
+        results = results.map(server => {
+            const path = pathfind(ns, server, current, [current], []);
+            if (path) {
+                return server + ": " + path.join(" -> ");
+            } else {
+                return server; // no path to self
+            }
+        });
+    }
+
     for (let server of results) {
         ns.tprint(server);
     }
@@ -158,7 +210,20 @@ function make_filter(ns, opts) {
             return (max - used) >= opts.free;
         });
     }
+
+    if (opts.mem !== -1) {
+        filters.push(server => {
+            const max = ns.getServerMaxRam(server);
+            return max >= opts.mem;
+        });
+    }
     
+    if (opts.money !== -1) {
+        filters.push(server => {
+            return ns.getServerMoneyAvailable(server) >= opts.money;
+        });
+    }
+
     if (opts.ignore.length !== 0) {
         filters.push(server => !opts.ignore.includes(server));
     }
