@@ -44,7 +44,7 @@ export async function main(ns) {
 	const weak_ram = total_weak_ram * weak_threads;
 
 	const need_ram = hack_ram + grow_ram + weak_ram;
-	const free_ram = host.maxRam - host.ramUsed;
+	let free_ram = host.maxRam - host.ramUsed;
 
 	if (hack_threads === total_hack_threads) {
 		ns.tprintf("Will use %d hack, %d grow, %d weak threads", hack_threads, grow_threads, weak_threads);
@@ -54,6 +54,21 @@ export async function main(ns) {
 		ns.tprintf("Will use %s GiB RAM (hack=%s, grow=%s, weak=%s)", need_ram.toFixed(2), hack_ram.toFixed(2), grow_ram.toFixed(2), weak_ram.toFixed(2));
 	}
 
+	const running_hack = ns.getRunningScript(opts.hack, opts.host, opts.target);
+	if (running_hack) {
+		free_ram += running_hack.ramUsage * running_hack.threads;
+	}
+
+	const running_grow = ns.getRunningScript(opts.grow, opts.host, opts.target);
+	if (running_grow) {
+		free_ram += running_grow.ramUsage * running_grow.threads;
+	}
+
+	const running_weak = ns.getRunningScript(opts.weak, opts.host, opts.target);
+	if (running_weak) {
+		free_ram += running_weak.ramUsage * running_weak.threads;
+	}
+
 	if (free_ram < need_ram) {
 		const total_need_ram = total_hack_ram * total_hack_threads + total_grow_ram * total_grow_threads + total_weak_ram * total_weak_threads;
 		ns.tprintf("Not enough RAM to run on '%s'. Need %s GiB, but only %s GiB is available.", opts.host, need_ram.toFixed(2), free_ram.toFixed(2));
@@ -61,10 +76,14 @@ export async function main(ns) {
 		return;
 	}
 
-	if (!opts.dry) {
-		ns.tprint("Starting...");
-		await start(ns, opts, hack_threads, grow_threads, weak_threads);
-	}
+	if (opts.dry) return;
+
+	if (running_hack) ns.kill(running_hack.pid);
+	if (running_grow) ns.kill(running_grow.pid);
+	if (running_weak) ns.kill(running_weak.pid);
+
+	ns.tprint("Starting...");
+	await start(ns, opts, hack_threads, grow_threads, weak_threads);
 }
 
 /** 
@@ -171,10 +190,6 @@ export async function start(ns, opts, hack_threads, grow_threads, weak_threads) 
 	await ns.scp(opts.hack, "home", opts.host);
 	await ns.scp(opts.grow, "home", opts.host);
 	await ns.scp(opts.weak, "home", opts.host);
-
-	ns.kill(opts.hack, opts.host, opts.target);
-	ns.kill(opts.grow, opts.host, opts.target);
-	ns.kill(opts.weak, opts.host, opts.target);
 
 	let hack_pid = 0;
 	let grow_pid = 0;
