@@ -11,6 +11,7 @@ import {find as pathfind} from "path_find.js";
  * @property {boolean} idle
  * @property {string[]} haveall
  * @property {string[]} haveany
+ * @property {string} running
  * @property {number} free
  * @property {number} mem
  * @property {number} money
@@ -28,6 +29,7 @@ const flags = [
     ["idle", false, "Include servers not running any scripts."],
     ["haveall", [], "Include servers with ALL of these scripts on them.", data => [...data.scripts]],
     ["haveany", [], "Include servers with ANY of these scripts on them.", data => [...data.scripts]],
+    ["running", "", "Include servers running this script.", data => [...data.scripts]],
     ["free", -1, "Include servers with at least this amount of free RAM (in GB)."],
     ["mem", -1, "Include servers with at least this amount of max RAM (in GB)."],
     ["money", -1, "Include servers with at least this amount of money (in dollars)."],
@@ -201,6 +203,10 @@ function make_filter(ns, opts) {
             }
             return false;
         });
+    }
+
+    if (opts.running !== "") {
+        filters.push(server => ns.scriptRunning(opts.running, server));
     }
 
     if (opts.free !== -1) {
