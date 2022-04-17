@@ -50,7 +50,10 @@ export function autocompleter(flags) {
 		}
 	
 		const current = args[args.length - 1];
-		const previous = args.length > 1 && !current.startsWith("--") ? args[args.length - 2] : current;
+		const previous = args.length > 1 &&
+						typeof current === "string" &&
+						!current.startsWith("--") ?
+						args[args.length - 2] : current;
 
 		console.log({current, previous});
 
