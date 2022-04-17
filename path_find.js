@@ -11,7 +11,7 @@ export async function main(ns) {
 
     const target = ns.args[0];
     const source = ns.getHostname();
-    const chain = find(ns,target,source,[],[]);
+    const chain = find(ns, target, source, [], []);
 
     if (!chain) {
         ns.tprintf("Couldn't find %s.", target);
@@ -30,7 +30,7 @@ export async function main(ns) {
  * 
  * @return {string[]}
  */
-function find(ns, target, source, chain, ignore) {
+export function find(ns, target, source, chain, ignore) {
     for (let server of ns.scan(source)) {
         if (ignore.includes(server)) continue;
 
