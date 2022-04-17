@@ -13,33 +13,35 @@ const flags = [
 
 export const autocomplete = util.autocompleter(flags);
 
-
 /** @param {NS} ns */
 export async function main(ns) {
 	const opts = ns.flags(flags);
 
 	if (opts.help) {
-		util.help(ns, "optimize_hack.js: Calculate and run the optimal amount of threads for hack()/grow()/weaken() for maximum profit.\n\n", flags);
+		util.help(ns, flags, "optimize_hack.js: Calculate and run the optimal amount of threads for hack()/grow()/weaken() for maximum profit.\n\n");
 		return;
 	}
 
 	if (opts.host === "") opts.host = ns.getHostname();
-
-	const goal = calc_hack_goal(ns, opts.target, 100);
-
 	const host = ns.getServer(opts.host);
+
+	const goal = calc_hack_goal(ns, opts.target, 1000);
 	
 	const total_hack_threads = calc_hack_threads(ns, opts.target, goal.amount);
 	const total_grow_threads = calc_grow_threads(ns, opts.target, host, goal.factor);
-	const total_weak_threads = calc_weak_threads(ns, opts.target, host, hack_threads, grow_threads);
+	const total_weak_threads = calc_weak_threads(ns, opts.target, host, total_hack_threads, total_grow_threads);
 
-	const hack_threads = Math.max(opts.factor * total_hack_threads, 1);
-	const grow_threads = Math.max(opts.factor * total_grow_threads, 1);
-	const weak_threads = Math.max(opts.factor * total_weak_threads, 1);
+	const hack_threads = Math.max(Math.floor(opts.factor * total_hack_threads), 1);
+	const grow_threads = Math.max(Math.ceil(opts.factor * total_grow_threads), 1);
+	const weak_threads = Math.max(Math.ceil(opts.factor * total_weak_threads), 1);
 
-	const hack_ram = ns.getScriptRam(opts.hack, "home") * hack_threads;
-	const grow_ram = ns.getScriptRam(opts.grow, "home") * grow_threads;
-	const weak_ram = ns.getScriptRam(opts.weak, "home") * weak_threads;
+	const total_hack_ram = ns.getScriptRam(opts.hack, "home");
+	const total_grow_ram = ns.getScriptRam(opts.grow, "home");
+	const total_weak_ram = ns.getScriptRam(opts.weak, "home");
+	
+	const hack_ram = total_hack_ram * hack_threads;
+	const grow_ram = total_grow_ram * grow_threads;
+	const weak_ram = total_weak_ram * weak_threads;
 
 	const need_ram = hack_ram + grow_ram + weak_ram;
 	const free_ram = host.maxRam - host.ramUsed;
@@ -53,14 +55,15 @@ export async function main(ns) {
 	}
 
 	if (free_ram < need_ram) {
+		const total_need_ram = total_hack_ram * total_hack_threads + total_grow_ram * total_grow_threads + total_weak_ram * total_weak_threads;
 		ns.tprintf("Not enough RAM to run on '%s'. Need %s GiB, but only %s GiB is available.", opts.host, need_ram.toFixed(2), free_ram.toFixed(2));
-		ns.tprintf("Try using --factor to use a percentage of the goal ('--factor %f' should fit on this server).", free_ram / need_ram);
+		ns.tprintf("Try using --factor to use a percentage of the goal ('--factor %f' should fit on this server).", free_ram / total_need_ram);
 		return;
 	}
 
 	if (!opts.dry) {
 		ns.tprint("Starting...");
-		await start(ns, data, hack_threads, grow_threads, weak_threads);
+		await start(ns, opts, hack_threads, grow_threads, weak_threads);
 	}
 }
 
@@ -81,7 +84,8 @@ export function calc_hack_goal(ns, target, factor) {
 
 	return {
 		amount: goal,
-		factor: 1 + goal / (max - goal),
+		factor: 2,
+		//factor: 1 + goal / (max - goal),
 	};
 }
 
@@ -149,7 +153,7 @@ export function calc_weak_threads(ns, target, host, hack_threads, grow_threads) 
 		threads++;
 		affect = ns.weakenAnalyze(threads, host.cpuCores);
 	}
-	return threads;
+	return Math.max(Math.ceil(threads), 1);
 
 	//const sec_diff = ns.getServerSecurityLevel(target) - ns.getServerMinSecurityLevel(target);
 	//const threads = (sec_diff + hack_threads * 0.003 + grow_threads * 0.005) / 0.05;
