@@ -1,42 +1,41 @@
-/*export function autocomplete(data, args) {
-	if (args.length === 0) {
-		return [...data.flags()];
-	}
+import * as util from "util.js"
 
-	const last = args[args.length - 1];
-	switch (last) {
-	case "--hack":
-		return [...data.scripts];
+const flags = [
+	["hack", "basic_hack.js", "The script to run on new servers.", data => [...data.scripts]],
+	["help", false, "Print the help."],
+];
 
-	case "--target":
-		return [...data.servers];
-
-	default:
-		return [];
-	}
-}*/
+export const autocomplete = util.autocompleter(flags);
 
 /**
-* @param {NS} ns
-**/
+ * @param {NS} ns
+ **/
 export async function main(ns) {
 	ns.disableLog("ALL");
 	ns.enableLog("exec");
 
-	const data = ns.flags([
-		["hack", "basic_hack.js"],
-		["target", ns.getHostname()],
-	]);
+	const data = ns.flags(flags);
 
-	await break_target(ns, data.hack, data.target);
+	if (data.help) {
+		util.help(ns, flags, "break.js: gain root access to all possible servers.");
+		return;
+	}
+
+	await break_target(ns, data.hack, "home");
 }
 
+const ignore_list = new Array(ns.getPurchasedServerLimit())
+	.map((_, i) => "server-" + i)
+	.push("home");
+
 /**
-* @param {NS} ns
-**/
+ * @param {NS} ns
+ * @param {string} script
+ * @param {string[]} target_chain
+ **/
 export async function break_target(ns, script, ...target_chain) {
 	const target = target_chain[target_chain.length - 1];
-	if (target !== "home") {
+	if (!ignore_list.includes(target)) {
 		const success = await get_access(ns, target);
 		if (success) {
 			await run_hack_script(ns, script, target);
@@ -48,11 +47,11 @@ export async function break_target(ns, script, ...target_chain) {
 }
 
 /**
-* @param {NS} ns
-**/
+ * @param {NS} ns
+ * @param {string} target
+ **/
 export async function get_access(ns, target) {
 	if (ns.hasRootAccess(target)) {
-		//ns.printf("already have root access on %s", target);
 		return true;
 	}
 
@@ -105,11 +104,12 @@ export async function get_access(ns, target) {
 }
 
 /**
-* @param {NS} ns
-**/
+ * @param {NS} ns
+ * @param {string} script
+ * @param {string} target
+ **/
 export async function run_hack_script(ns, script, target) {
 	if (ns.scriptRunning(script, target)) {
-		//ns.printf("already running %s on %s", script, target);
 		return;
 	}
 
@@ -139,8 +139,11 @@ export async function run_hack_script(ns, script, target) {
 }
 
 /**
-* @param {NS} ns
-**/
+ * @param {NS} ns
+ * @param {string} script
+ * @param {string[]} target_chain
+ * @param {string[]} neighbors
+ **/
 export async function spread(ns, script, target_chain, neighbors) {
 	for (let neighbor of neighbors) {
 		await break_target(ns, script, ...target_chain, neighbor);
@@ -148,23 +151,10 @@ export async function spread(ns, script, target_chain, neighbors) {
 }
 
 /**
-* @param {NS} ns
-**/
+ * @param {NS} ns
+ * @param {string[]} target_chain
+ **/
 export function get_neighbors(ns, ...target_chain) {
-	const ignore_list = [
-		"home",
-		"server-0",
-		"server-1",
-		"server-2",
-		"server-3",
-		"server-4",
-		"server-5",
-		"server-6",
-		"server-7",
-		"server-8",
-		"server-9",
-	];
-
 	const target = target_chain[target_chain.length - 1];
 	let parent = null;
 	if (target_chain.length > 1) {
