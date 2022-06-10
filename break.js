@@ -1,7 +1,9 @@
-import * as util from "util.js"
+import * as util from "util.js";
 
 const flags = [
-	["hack", "basic_hack.js", "The script to run on new servers.", data => [...data.scripts]],
+	["hack", "basic_hack.js", "The script to run on new servers. Set to empty to not use.", data => [...data.scripts]],
+	["daemon", false, "Run script as a daemon, checking for new servers every --frequency seconds."],
+	["frequency", 5 * 1000, "Only relevant when --daemon is set. Number of seconds for how often new servers are checked for."],
 	["help", false, "Print the help."],
 ];
 
@@ -21,29 +23,38 @@ export async function main(ns) {
 		return;
 	}
 
-	await break_target(ns, data.hack, "home");
-}
+	if (!data.daemon) {
+		flags.frequency = 1;
+	}
 
-const ignore_list = new Array(ns.getPurchasedServerLimit())
-	.map((_, i) => "server-" + i)
-	.push("home");
+	const ignore_list = new Array(ns.getPurchasedServerLimit())
+		.fill(0)
+		.map((_, i) => "server-" + i)
+		.concat(["home"]);
+
+	do {
+		await break_target(ns, data.hack, ignore_list, "home");
+		await ns.asleep(data.frequency);
+	} while (data.daemon);
+}
 
 /**
  * @param {NS} ns
  * @param {string} script
+ * @param {string[]} ignore_list
  * @param {string[]} target_chain
  **/
-export async function break_target(ns, script, ...target_chain) {
+export async function break_target(ns, script, ignore_list, ...target_chain) {
 	const target = target_chain[target_chain.length - 1];
 	if (!ignore_list.includes(target)) {
 		const success = await get_access(ns, target);
-		if (success) {
+		if (success && script !== "") {
 			await run_hack_script(ns, script, target);
 		}
 	}
 
-	const neighbors = get_neighbors(ns, ...target_chain);
-	await spread(ns, script, target_chain, neighbors);
+	const neighbors = get_neighbors(ns, ignore_list, ...target_chain);
+	await spread(ns, script, ignore_list, target_chain, neighbors);
 }
 
 /**
@@ -99,7 +110,13 @@ export async function get_access(ns, target) {
 	}
 
 	ns.nuke(target);
-	ns.tprintf("now have access to %s!", target);
+	const msg = ns.sprintf("now have access to %s!", target);
+	ns.toast(msg, "info");
+
+	if (util.has_singularity(ns)) {
+		ns.run("backdoor.js", 1, target);
+	}
+
 	return true;
 }
 
@@ -118,43 +135,51 @@ export async function run_hack_script(ns, script, target) {
 		return;
 	}
 
+	await ns.scp(script, "home", target);
+
 	const serverRAM = ns.getServerMaxRam(target);
-	const scriptRAM = ns.getScriptRam(script, "home")
+	const scriptRAM = ns.getScriptRam(script, target);
 	if (serverRAM < scriptRAM) {
 		ns.printf("ignoring %s - too little RAM (%f < %f)", target, serverRAM, scriptRAM);
 		return;
 	}
 
-	await ns.scp(script, "home", target);
-
 	const free = ns.getServerMaxRam(target) - ns.getServerUsedRam(target);
 	const need = ns.getScriptRam(script, target);
 	const threads = Math.floor(free / need);
 
-	const money_threshold = ns.getServerMaxMoney(target) * 0.75;
-	const sec_threshold =  ns.getServerMinSecurityLevel(target) + 5;
-	ns.exec(script, target, threads > 0 ? threads : 1, target, money_threshold, sec_threshold);
+	const money_threshold = ns.getServerMaxMoney(target);
+	const sec_threshold =  ns.getServerMinSecurityLevel(target);
 
-	ns.tprintf("now hacking %s!", target);
-}
-
-/**
- * @param {NS} ns
- * @param {string} script
- * @param {string[]} target_chain
- * @param {string[]} neighbors
- **/
-export async function spread(ns, script, target_chain, neighbors) {
-	for (let neighbor of neighbors) {
-		await break_target(ns, script, ...target_chain, neighbor);
+	const pid = ns.exec(script, target, threads > 0 ? threads : 1, target, money_threshold, sec_threshold);
+	if (pid > 0) {
+		const msg = ns.sprintf("now hacking %s!", target);
+		ns.toast(msg, "success");
+	} else {
+		const msg = ns.sprintf("failed to start hack script on %s...", target);
+		ns.toast(msg, "error");
 	}
 }
 
 /**
  * @param {NS} ns
+ * @param {string} script
+ * @param {string[]} ignore_list
+ * @param {string[]} target_chain
+ * @param {string[]} neighbors
+ **/
+export async function spread(ns, script, ignore_list, target_chain, neighbors) {
+	for (let neighbor of neighbors) {
+		await break_target(ns, script, ignore_list, ...target_chain, neighbor);
+	}
+}
+
+/**
+ * @param {NS} ns
+ * @param {string[]} ignore_list
  * @param {string[]} target_chain
  **/
-export function get_neighbors(ns, ...target_chain) {
+export function get_neighbors(ns, ignore_list, ...target_chain) {
 	const target = target_chain[target_chain.length - 1];
 	let parent = null;
 	if (target_chain.length > 1) {

@@ -1,5 +1,5 @@
 import * as util from "util.js";
-import {find as pathfind} from "path_find.js";
+import { find as pathfind } from "path_find.js";
 
 /**
  * @typedef {string}
@@ -13,8 +13,10 @@ import {find as pathfind} from "path_find.js";
  * @property {string[]} haveany
  * @property {string} running
  * @property {number} free
+ * @property {number} level
  * @property {number} mem
  * @property {number} money
+ * @property {boolean} nomoney
  * @property {string[]} ignore
  * @property {("and"|"or")} join
  * @property {("name"|"mem"|"free")} sort
@@ -31,13 +33,15 @@ const flags = [
     ["haveany", [], "Include servers with ANY of these scripts on them.", data => [...data.scripts]],
     ["running", "", "Include servers running this script.", data => [...data.scripts]],
     ["free", -1, "Include servers with at least this amount of free RAM (in GB)."],
+    ["level", -1, "Include servers that require a hack skill of this or less."],
     ["mem", -1, "Include servers with at least this amount of max RAM (in GB)."],
     ["money", -1, "Include servers with at least this amount of money (in dollars)."],
+    ["nomoney", false, "Include servers that never have money."],
     ["ignore", [], "List of servers to exclude from results, even if they match the filter(s).", data => [...data.servers]],
     ["join", "and", "Operator to join filters with. Options are one of: 'and', 'or'.", _ => ["and", "or"]],
-    ["sort", "name", "Sort results by one of: 'name', 'mem', 'free'.", _ => ["name", "mem", "free"]],
+    ["sort", "name", "Sort results by one of: 'name', 'mem', 'free'.", _ => ["name", "mem", "free", "level"]],
     ["path", false, "Print path to each server in results."],
-	["help", false, "Print the help."],
+    ["help", false, "Print the help."],
 ];
 
 export const autocomplete = util.autocompleter(flags);
@@ -46,16 +50,16 @@ export const autocomplete = util.autocompleter(flags);
  * @param {NS} ns
  **/
 export async function main(ns) {
-	ns.disableLog("ALL");
-	ns.enableLog("exec");
+    ns.disableLog("ALL");
+    ns.enableLog("exec");
 
     /** @type {Opts} */
-	const opts = ns.flags(flags);
+    const opts = ns.flags(flags);
 
-	if (opts.help) {
-		util.help(ns, flags, "find.js: find servers meeting specified criteria.");
-		return;
-	}
+    if (opts.help) {
+        util.help(ns, flags, "find.js: find servers meeting specified criteria.");
+        return;
+    }
 
     switch (opts.sort) {
     case "name":
@@ -99,6 +103,10 @@ export async function main(ns) {
     case "free":
         results.sort((a, b) => (ns.getServerMaxRam(b) - ns.getServerUsedRam(b)) - (ns.getServerMaxRam(a) - ns.getServerUsedRam(a)));
         break;
+
+    case "level":
+        results.sort((a, b) => ns.getServerRequiredHackingLevel(a) - ns.getServerRequiredHackingLevel(b));
+        break;
     }
 
     if (opts.path) {
@@ -111,8 +119,7 @@ export async function main(ns) {
                 return server; // no path to self
             }
         });
-    }
-
+    } 
     for (let server of results) {
         ns.tprint(server);
     }
@@ -133,7 +140,7 @@ export async function main(ns) {
  * 
  * @return {string[]}
  */
-function find(ns, source, ignore, results, filter) {
+export function find(ns, source, ignore, results, filter) {
     const next_ignore = [...ignore, source];
     for (let server of ns.scan(source)) {
         if (ignore.includes(server)) continue;
@@ -152,7 +159,7 @@ function find(ns, source, ignore, results, filter) {
  * @param {NS} ns
  * @param {Opts} opts
  **/
-function make_filter(ns, opts) {
+export function make_filter(ns, opts) {
     /** @type {Filter[]} */
     const filters = [];
 
@@ -217,24 +224,33 @@ function make_filter(ns, opts) {
         });
     }
 
+    if (opts.level !== -1) {
+        filters.push(server => {
+            const level = ns.getServerRequiredHackingLevel(server);
+            return level <= opts.level;
+        });
+    }
+
     if (opts.mem !== -1) {
         filters.push(server => {
             const max = ns.getServerMaxRam(server);
             return max >= opts.mem;
         });
     }
-    
+
     if (opts.money !== -1) {
-        filters.push(server => {
-            return ns.getServerMoneyAvailable(server) >= opts.money;
-        });
+        filters.push(server => ns.getServerMaxMoney(server) >= opts.money);
+    }
+
+    if (opts.nomoney) {
+        filters.push(server => ns.getServerMaxMoney(server) == 0);
     }
 
     if (opts.ignore.length !== 0) {
         filters.push(server => !opts.ignore.includes(server));
     }
 
-    if (filters.length === 0)  return _ => true;
+    if (filters.length === 0) return _ => true;
 
     switch (opts.join) {
     case "and":

@@ -11,14 +11,14 @@ export async function main(ns) {
 
     const target = ns.args[0];
     const source = ns.getHostname();
-    const chain = find(ns, target, source, [], []);
+    const chain = find(ns, target, source, [], [])?.map(s => "connect " + s);
 
     if (!chain) {
         ns.tprintf("Couldn't find %s.", target);
         return;
     }
 
-    ns.tprint(chain.join(" -> "));
+    ns.tprint(chain.join("; "));
 }
 
 /** 

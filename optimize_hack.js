@@ -27,32 +27,22 @@ export async function main(ns) {
 
 	const goal = calc_hack_goal(ns, opts.target, 1000);
 	
-	const total_hack_threads = calc_hack_threads(ns, opts.target, goal.amount);
-	const total_grow_threads = calc_grow_threads(ns, opts.target, host, goal.factor);
-	const total_weak_threads = calc_weak_threads(ns, opts.target, host, total_hack_threads, total_grow_threads);
+	const optimal_hack_threads = calc_hack_threads(ns, opts.target, goal.amount);
+	const optimal_grow_threads = calc_grow_threads(ns, opts.target, host, goal.factor);
+	const optimal_weak_threads = calc_weak_threads(ns, opts.target, host, optimal_hack_threads, optimal_grow_threads);
 
-	const hack_threads = Math.max(Math.floor(opts.factor * total_hack_threads), 1);
-	const grow_threads = Math.max(Math.ceil(opts.factor * total_grow_threads), 1);
-	const weak_threads = Math.max(Math.ceil(opts.factor * total_weak_threads), 1);
+	const [hack_threads, grow_threads, weak_threads] = applyFactor(ns, opts.factor, optimal_hack_threads, optimal_grow_threads, optimal_weak_threads);
 
-	const total_hack_ram = ns.getScriptRam(opts.hack, "home");
-	const total_grow_ram = ns.getScriptRam(opts.grow, "home");
-	const total_weak_ram = ns.getScriptRam(opts.weak, "home");
+	const hack_ram = ns.getScriptRam(opts.hack, "home");
+	const grow_ram = ns.getScriptRam(opts.grow, "home");
+	const weak_ram = ns.getScriptRam(opts.weak, "home");
 	
-	const hack_ram = total_hack_ram * hack_threads;
-	const grow_ram = total_grow_ram * grow_threads;
-	const weak_ram = total_weak_ram * weak_threads;
+	const total_hack_ram = hack_ram * hack_threads;
+	const total_grow_ram = grow_ram * grow_threads;
+	const total_weak_ram = weak_ram * weak_threads;
 
-	const need_ram = hack_ram + grow_ram + weak_ram;
+	const need_ram = total_hack_ram + total_grow_ram + total_weak_ram;
 	let free_ram = host.maxRam - host.ramUsed;
-
-	if (hack_threads === total_hack_threads) {
-		ns.tprintf("Will use %d hack, %d grow, %d weak threads", hack_threads, grow_threads, weak_threads);
-		ns.tprintf("Will use %s GiB RAM (hack=%s, grow=%s, weak=%s)", need_ram.toFixed(2), hack_ram.toFixed(2), grow_ram.toFixed(2), weak_ram.toFixed(2));
-	} else {
-		ns.tprintf("Will use %d hack, %d grow, %d weak threads", hack_threads, grow_threads, weak_threads);
-		ns.tprintf("Will use %s GiB RAM (hack=%s, grow=%s, weak=%s)", need_ram.toFixed(2), hack_ram.toFixed(2), grow_ram.toFixed(2), weak_ram.toFixed(2));
-	}
 
 	const running_hack = ns.getRunningScript(opts.hack, opts.host, opts.target);
 	if (running_hack) {
@@ -70,11 +60,14 @@ export async function main(ns) {
 	}
 
 	if (free_ram < need_ram) {
-		const total_need_ram = total_hack_ram * total_hack_threads + total_grow_ram * total_grow_threads + total_weak_ram * total_weak_threads;
+		const total_need_ram = hack_ram * optimal_hack_threads + grow_ram * optimal_grow_threads + weak_ram * optimal_weak_threads;
 		ns.tprintf("Not enough RAM to run on '%s'. Need %s GiB, but only %s GiB is available.", opts.host, need_ram.toFixed(2), free_ram.toFixed(2));
-		ns.tprintf("Try using --factor to use a percentage of the goal ('--factor %f' should fit on this server).", free_ram / total_need_ram);
+		ns.tprintf("Try using --factor to use a percentage of the optimal ('--factor %f' should fit on this server).", free_ram / total_need_ram);
 		return;
 	}
+
+	ns.tprintf("Will use %d hack, %d grow, %d weak threads", hack_threads, grow_threads, weak_threads);
+	ns.tprintf("Will use %s GiB RAM (hack=%s, grow=%s, weak=%s)", need_ram.toFixed(2), total_hack_ram.toFixed(2), total_grow_ram.toFixed(2), total_weak_ram.toFixed(2));
 
 	if (opts.dry) return;
 
@@ -84,6 +77,26 @@ export async function main(ns) {
 
 	ns.tprint("Starting...");
 	await start(ns, opts, hack_threads, grow_threads, weak_threads);
+}
+
+/**
+ * @param {NS} ns
+ * @param {number} factor
+ * @param {number} optimal_hack
+ * @param {number} optimal_grow
+ * @param {number} optimal_weak
+ * 
+ * @return {[number, number, number]}
+ */
+function applyFactor(ns, factor, optimal_hack, optimal_grow, optimal_weak) {
+	if (factor === 0) {
+		return [1, 7, 1];
+	}
+
+	const hack_threads = Math.max(Math.floor(factor * optimal_hack), 1);
+	const grow_threads = Math.max(Math.ceil(factor * optimal_grow), 1);
+	const weak_threads = Math.max(Math.ceil(factor * optimal_weak), 1);
+	return [hack_threads, grow_threads, weak_threads];
 }
 
 /** 

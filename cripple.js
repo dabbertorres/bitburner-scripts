@@ -42,7 +42,7 @@ export async function main(ns) {
 
 	const calls = amount / affect;
 	const total_time = calls * time_per_call;
-	ns.tprintf("Will cripple %s in %s (%d threads).", data.target, time_string(ns, total_time), threads);
+	ns.tprintf("Will cripple %s in %s (%d threads).", data.target, ns.tFormat(total_time), threads);
 
 	if (data.dry) return;
 
@@ -54,33 +54,4 @@ export async function main(ns) {
 		// reclaim the ram we were using for the "do script"
 		ns.spawn(data.script, threads, data.target, min);
 	}
-}
-
-/** @param {NS} ns */
-export function time_string(ns, ms) {
-	if (ms < 1000)
-		return ms.toFixed(2);
-
-	let seconds = Math.floor(ms / 1000);
-	ms %= 1000;
-
-	if (seconds < 60)
-		return ns.sprintf("%ds%.2fms", seconds, ms);
-
-	let minutes = Math.floor(seconds / 60);
-	seconds %= 60;
-
-	if (minutes < 60)
-		return ns.sprintf("%dm%ds%.2fms", minutes, seconds, ms);
-
-	let hours = Math.floor(minutes / 60);
-	minutes %= 60;
-
-	if (hours < 60)
-		return ns.sprintf("%dh%dm%ds%.2fms", hours, minutes, seconds, ms);
-
-	let days = Math.floor(hours / 24);
-	hours %= 24;
-
-	return ns.sprintf("%dd%dh%dm%ds%.2fms", days, hours, minutes, seconds, ms);
 }

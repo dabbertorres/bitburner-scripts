@@ -69,3 +69,12 @@ export function autocompleter(flags) {
 		return [];
 	};
 }
+
+/**
+ * @param {NS} ns
+ * 
+ * @return {boolean}
+ */
+export function has_singularity(ns) {
+	return ns.getPlayer().bitNodeN === 4 || ns.getOwnedSourceFiles().some(sf => sf.n === 4);
+}
